@@ -1,0 +1,64 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "k8s-ai-ops.fullname" . }}
+  namespace: {{ .Values.metrics.serviceMonitor.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "k8s-ai-ops.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "k8s-ai-ops.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+
+---
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s-ai-ops.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-ai-ops.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "k8s-ai-ops.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+  type: ClusterIP
+{{- end }}
+
+---
+{{- if .Values.crds.install }}
+# Note: In production, install CRDs separately via:
+#   kubectl apply -f https://raw.githubusercontent.com/.../config/crd/aiinsight.yaml
+# This ConfigMap provides a reference copy for GitOps workflows.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "k8s-ai-ops.fullname" . }}-crd-ref
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-ai-ops.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+data:
+  crd-url: "https://github.com/sharatvikas/k8s-ai-ops/blob/main/config/crd/aiinsight.yaml"
+  install-cmd: "kubectl apply -f config/crd/aiinsight.yaml"
+{{- end }}
