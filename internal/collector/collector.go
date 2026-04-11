@@ -21,6 +21,7 @@ type PodContext struct {
 	Events            []Event
 	Logs              []string
 	RecentDeployment  string
+	IncidentID        string // optional, injected by operator contextHints
 }
 
 // ContainerStatus summarizes a container's state
