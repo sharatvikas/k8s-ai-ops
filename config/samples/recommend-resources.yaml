@@ -1,0 +1,15 @@
+apiVersion: ai.k8s-ai-ops.io/v1alpha1
+kind: AIInsight
+metadata:
+  name: rightsize-api-gateway
+  namespace: production
+spec:
+  target:
+    kind: Deployment
+    name: api-gateway
+    namespace: production
+  analysisType: Recommend
+  ttlSeconds: 86400      # Keep for 24h (resource recommendations stay relevant)
+  contextHints:
+    trafficProfile: "bursty — 10x spike during US business hours"
+    sloTarget: "99.9%"

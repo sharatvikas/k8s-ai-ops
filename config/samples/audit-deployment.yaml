@@ -1,0 +1,12 @@
+apiVersion: ai.k8s-ai-ops.io/v1alpha1
+kind: AIInsight
+metadata:
+  name: audit-nginx-deployment
+  namespace: default
+spec:
+  target:
+    kind: Deployment
+    name: nginx
+    namespace: default
+  analysisType: Audit
+  ttlSeconds: 7200
