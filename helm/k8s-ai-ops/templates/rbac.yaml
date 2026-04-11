@@ -1,0 +1,49 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "k8s-ai-ops.fullname" . }}-manager
+  labels:
+    {{- include "k8s-ai-ops.labels" . | nindent 4 }}
+rules:
+  # AIInsight CRD
+  - apiGroups: ["ai.k8s-ai-ops.io"]
+    resources: ["aiinsights"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["ai.k8s-ai-ops.io"]
+    resources: ["aiinsights/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["ai.k8s-ai-ops.io"]
+    resources: ["aiinsights/finalizers"]
+    verbs: ["update"]
+  # Read cluster state for AI context collection
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  # Leader election
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Events (for recording controller events)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "k8s-ai-ops.fullname" . }}-manager
+  labels:
+    {{- include "k8s-ai-ops.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "k8s-ai-ops.fullname" . }}-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "k8s-ai-ops.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

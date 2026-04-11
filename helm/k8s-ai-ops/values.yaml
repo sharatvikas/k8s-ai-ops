@@ -1,0 +1,61 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/sharatvikas/k8s-ai-ops
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to chart appVersion
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Claude model used for AI analysis
+anthropicModel: "claude-haiku-4-5-20251001"
+
+# Anthropic API key — prefer referencing an existing secret
+anthropicApiKey:
+  # Use an existing secret (recommended for production)
+  existingSecret: ""
+  existingSecretKey: "ANTHROPIC_API_KEY"
+  # Or provide the key directly (will be stored in a new Secret)
+  value: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# Leader election — enable when running multiple replicas
+leaderElection:
+  enabled: false
+
+# Metrics endpoint
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+
+# RBAC — creates ClusterRole and ClusterRoleBinding
+rbac:
+  create: true
+
+# CRD installation — set to false if managing CRDs externally
+crds:
+  install: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

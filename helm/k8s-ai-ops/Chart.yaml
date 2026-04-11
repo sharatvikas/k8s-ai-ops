@@ -1,0 +1,15 @@
+apiVersion: v2
+name: k8s-ai-ops
+description: AI-powered Kubernetes diagnostics operator — AIInsight CRD + controller
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - ai
+  - sre
+  - operator
+  - diagnostics
+home: https://github.com/sharatvikas/k8s-ai-ops
+maintainers:
+  - name: sharatvikas
