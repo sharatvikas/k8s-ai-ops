@@ -1,0 +1,16 @@
+apiVersion: ai.k8s-ai-ops.io/v1alpha1
+kind: AIInsight
+metadata:
+  name: diagnose-payment-crashloop
+  namespace: production
+spec:
+  target:
+    kind: Pod
+    name: payment-service-7d9f8b-xkp2q
+    namespace: production
+  analysisType: Diagnose
+  ttlSeconds: 3600         # Auto-delete result after 1 hour
+  contextHints:
+    incidentID: "INC-2024-0115"
+    deployedBy: "argo-rollouts"
+    lastDeployAt: "2024-01-15T14:00:00Z"
