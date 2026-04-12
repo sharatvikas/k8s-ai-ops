@@ -44,27 +44,14 @@ var auditCmd = &cobra.Command{
 	},
 }
 
-var recommendCmd = &cobra.Command{
-	Use:   "recommend resources [deploy/name]",
-	Short: "Get resource request/limit recommendations based on actual usage",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ns, _ := cmd.Flags().GetString("namespace")
-		window, _ := cmd.Flags().GetString("window")
-		return runRecommend(args[0], ns, window)
-	},
-}
-
 func init() {
 	diagnosePodCmd.Flags().StringP("namespace", "n", "default", "Kubernetes namespace")
 	auditCmd.Flags().StringP("file", "f", "", "Path to manifest file")
-	recommendCmd.Flags().StringP("namespace", "n", "default", "Kubernetes namespace")
-	recommendCmd.Flags().String("window", "7d", "Lookback window for metrics (e.g. 7d, 24h)")
 
 	rootCmd.AddCommand(diagnosePodCmd)
 	rootCmd.AddCommand(explainCmd)
 	rootCmd.AddCommand(auditCmd)
-	rootCmd.AddCommand(recommendCmd)
+	// recommendCmd registered in recommend.go
 }
 
 func runDiagnosePod(name, namespace string) error {
@@ -133,32 +120,6 @@ func runAudit(file string) error {
 	return nil
 }
 
-func runRecommend(target, namespace, window string) error {
-	fmt.Printf("Analyzing resource usage for %s over %s...\n\n", target, window)
-
-	c, err := collector.NewK8sCollector()
-	if err != nil {
-		return err
-	}
-
-	metrics, err := c.CollectResourceMetrics(target, namespace, window)
-	if err != nil {
-		return err
-	}
-
-	a, err := analyzer.NewAnalyzer()
-	if err != nil {
-		return err
-	}
-
-	recommendation, err := a.RecommendResources(metrics)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(recommendation)
-	return nil
-}
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
