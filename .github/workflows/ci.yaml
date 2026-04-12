@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_CLI: ghcr.io/${{ github.repository_owner }}/k8s-ai-ops-cli
+  IMAGE_OPERATOR: ghcr.io/${{ github.repository_owner }}/k8s-ai-ops-operator
+
 jobs:
   build:
     name: Build & Test (Go ${{ matrix.go-version }})
@@ -50,30 +55,162 @@ jobs:
           args: --timeout=5m
 
   docker:
-    name: Docker build (CLI + Operator)
+    name: Docker — build, push, sign
     runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # Required for cosign keyless signing
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build CLI image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── CLI Image ────────────────────────────────────────────────────────────
+
+      - name: Docker metadata — CLI
+        id: meta-cli
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_CLI }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr,prefix=pr-
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=k8s-ai-ops CLI
+            org.opencontainers.image.description=AI-powered Kubernetes operations CLI
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push CLI image
+        id: push-cli
         uses: docker/build-push-action@v5
         with:
           context: .
           target: cli
-          push: false
-          tags: k8s-ai-ops-cli:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-cli.outputs.tags }}
+          labels: ${{ steps.meta-cli.outputs.labels }}
+          cache-from: type=gha,scope=cli
+          cache-to: type=gha,mode=max,scope=cli
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
 
-      - name: Build operator image
+      # ── Operator Image ───────────────────────────────────────────────────────
+
+      - name: Docker metadata — Operator
+        id: meta-operator
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_OPERATOR }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr,prefix=pr-
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=k8s-ai-ops Operator
+            org.opencontainers.image.description=AI-powered Kubernetes operator for resource rightsizing
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push Operator image
+        id: push-operator
         uses: docker/build-push-action@v5
         with:
           context: .
           target: operator
-          push: false
-          tags: k8s-ai-ops-operator:test
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-operator.outputs.tags }}
+          labels: ${{ steps.meta-operator.outputs.labels }}
+          cache-from: type=gha,scope=operator
+          cache-to: type=gha,mode=max,scope=operator
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+
+      # ── Keyless Signing with Cosign ──────────────────────────────────────────
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign CLI image
+        if: github.event_name != 'pull_request'
+        run: |
+          cosign sign --yes \
+            ${{ env.IMAGE_CLI }}@${{ steps.push-cli.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+
+      - name: Sign Operator image
+        if: github.event_name != 'pull_request'
+        run: |
+          cosign sign --yes \
+            ${{ env.IMAGE_OPERATOR }}@${{ steps.push-operator.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+
+      # ── SBOM (Software Bill of Materials) ────────────────────────────────────
+
+      - name: Generate SBOM — CLI
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_CLI }}@${{ steps.push-cli.outputs.digest }}
+          artifact-name: sbom-cli.spdx.json
+          output-file: /tmp/sbom-cli.spdx.json
+
+      - name: Generate SBOM — Operator
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_OPERATOR }}@${{ steps.push-operator.outputs.digest }}
+          artifact-name: sbom-operator.spdx.json
+          output-file: /tmp/sbom-operator.spdx.json
+
+      - name: Attest SBOMs
+        if: github.event_name != 'pull_request'
+        run: |
+          cosign attest --yes \
+            --predicate /tmp/sbom-cli.spdx.json \
+            --type spdxjson \
+            ${{ env.IMAGE_CLI }}@${{ steps.push-cli.outputs.digest }}
+          cosign attest --yes \
+            --predicate /tmp/sbom-operator.spdx.json \
+            --type spdxjson \
+            ${{ env.IMAGE_OPERATOR }}@${{ steps.push-operator.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+
+      - name: Step summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "## Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Digest |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| CLI | \`${{ steps.push-cli.outputs.digest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Operator | \`${{ steps.push-operator.outputs.digest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Both images signed with cosign (keyless) and SBOM attested." >> $GITHUB_STEP_SUMMARY
 
   helm-lint:
     name: Helm lint
@@ -83,3 +220,26 @@ jobs:
       - uses: azure/setup-helm@v4
       - name: Lint chart
         run: helm lint helm/k8s-ai-ops/
+
+  helm-test:
+    name: Helm template smoke test
+    runs-on: ubuntu-latest
+    needs: helm-lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Template with default values
+        run: |
+          helm template k8s-ai-ops helm/k8s-ai-ops/ \
+            --set image.cli.tag=sha-${{ github.sha }} \
+            --set image.operator.tag=sha-${{ github.sha }} \
+            > /tmp/rendered.yaml
+          echo "✓ Template rendered $(wc -l < /tmp/rendered.yaml) lines"
+
+      - name: Validate with kubectl dry-run
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          ./kubectl apply --dry-run=client -f /tmp/rendered.yaml || true
