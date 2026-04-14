@@ -38,7 +38,7 @@ Confidence: HIGH/MEDIUM/LOW  •  Auto-remediate? [y/N]`
 
 // Analyzer wraps the Claude API for K8s diagnostics
 type Analyzer struct {
-	client *anthropic.Client
+	client anthropic.Client
 	model  string
 }
 

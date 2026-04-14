@@ -128,9 +128,8 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Build max-usage map: namespace/workload/container -> {cpuMax, memMax}
-	type usageKey struct{ ns, workload, container string }
-	type usageVal struct{ cpuMax, memMax int64 }
-	usageMap := map[usageKey]usageVal{}
+	// Use anonymous struct type matching analyzeWorkload's signature
+	usageMap := map[struct{ ns, workload, container string }]struct{ cpuMax, memMax int64 }{}
 
 	pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -160,7 +159,7 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 		for _, c := range pm.Containers {
-			k := usageKey{pm.Namespace, wl, c.Name}
+			k := struct{ ns, workload, container string }{pm.Namespace, wl, c.Name}
 			cpu := c.Usage.Cpu().MilliValue()
 			mem := c.Usage.Memory().Value()
 			if existing, exists := usageMap[k]; exists {
@@ -172,7 +171,7 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 				}
 				usageMap[k] = existing
 			} else {
-				usageMap[k] = usageVal{cpu, mem}
+				usageMap[k] = struct{ cpuMax, memMax int64 }{cpu, mem}
 			}
 		}
 	}
@@ -420,7 +419,7 @@ Apply kubectl with: kubectl patch <kind> <name> -n <namespace> --patch-file <fil
 `)
 
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaude_Haiku_4_5,
+		Model:     anthropic.ModelClaudeHaiku4_5,
 		MaxTokens: 2000,
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(sb.String()))},
 	})
@@ -431,7 +430,7 @@ Apply kubectl with: kubectl patch <kind> <name> -n <namespace> --patch-file <fil
 
 	var output string
 	for _, b := range msg.Content {
-		if b.Type == anthropic.ContentBlockTypeText {
+		if b.Type == "text" {
 			output = b.Text
 		}
 	}
