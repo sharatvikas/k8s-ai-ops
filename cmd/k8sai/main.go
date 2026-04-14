@@ -40,7 +40,7 @@ var auditCmd = &cobra.Command{
 	Short: "Audit a deployment manifest for issues before applying",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		file, _ := cmd.Flags().GetString("file")
-		return runAudit(file)
+		return runManifestAudit(file)
 	},
 }
 
@@ -101,7 +101,7 @@ func runExplain(messageParts []string) error {
 	return nil
 }
 
-func runAudit(file string) error {
+func runManifestAudit(file string) error {
 	if file == "" {
 		return fmt.Errorf("--file is required")
 	}
