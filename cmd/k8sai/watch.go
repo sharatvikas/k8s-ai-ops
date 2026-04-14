@@ -198,7 +198,7 @@ func enrichEvent(ctx context.Context, client *anthropic.Client, e *corev1.Event)
 	defer cancel()
 
 	msg, err := client.Messages.New(enrichCtx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaude_Haiku_4_5,
+		Model:     anthropic.ModelClaudeHaiku4_5,
 		MaxTokens: 60,
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
@@ -209,7 +209,7 @@ func enrichEvent(ctx context.Context, client *anthropic.Client, e *corev1.Event)
 	}
 
 	for _, block := range msg.Content {
-		if block.Type == anthropic.ContentBlockTypeText {
+		if block.Type == "text" {
 			return strings.TrimSpace(block.Text)
 		}
 	}

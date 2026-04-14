@@ -20,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -321,7 +320,7 @@ For each, provide ONE specific action (resource limit increase, HPA config, or c
 Format: <namespace/pod/container>: <action> (one line each, max 20 words per line)`, strings.Join(lines, "\n"))
 
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaude_Haiku_4_5,
+		Model:     anthropic.ModelClaudeHaiku4_5,
 		MaxTokens: 200,
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(prompt))},
 	})
@@ -329,7 +328,7 @@ Format: <namespace/pod/container>: <action> (one line each, max 20 words per lin
 		return
 	}
 	for _, b := range msg.Content {
-		if b.Type == anthropic.ContentBlockTypeText {
+		if b.Type == "text" {
 			fmt.Printf("\033[36m💡 AI Recommendations:\033[0m\n%s\n", b.Text)
 		}
 	}
