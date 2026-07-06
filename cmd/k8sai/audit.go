@@ -42,11 +42,11 @@ const (
 
 // AuditFinding represents a single security misconfiguration.
 type AuditFinding struct {
-	Severity   string
-	Category   string
-	Resource   string // e.g. "Pod/payments-api-abc123"
-	Namespace  string
-	Detail     string
+	Severity    string
+	Category    string
+	Resource    string // e.g. "Pod/payments-api-abc123"
+	Namespace   string
+	Detail      string
 	Remediation string
 }
 

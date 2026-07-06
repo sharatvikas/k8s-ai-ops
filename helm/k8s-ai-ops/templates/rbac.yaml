@@ -20,6 +20,13 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "events", "nodes", "namespaces"]
     verbs: ["get", "list", "watch"]
+  {{- if .Values.remediation.enabled }}
+  # Auto-remediation: delete crashlooping/OOM-killed pods so their workload
+  # controller reschedules them. Only granted when remediation is enabled.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  {{- end }}
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
     verbs: ["get", "list", "watch"]

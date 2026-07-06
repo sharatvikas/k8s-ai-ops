@@ -29,8 +29,20 @@ spec:
             - --anthropic-model={{ .Values.anthropicModel }}
             - --metrics-bind-address=:{{ .Values.metrics.port }}
             - --health-probe-bind-address=:8081
+            - --zap-encoder={{ .Values.logging.encoder }}
+            - --zap-log-level={{ .Values.logging.level }}
+            - --insight-ttl={{ .Values.insightTTL }}
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect
+            {{- end }}
+            {{- if .Values.remediation.enabled }}
+            - --enable-remediation
+            - --remediation-cooldown={{ .Values.remediation.cooldown }}
+            - --max-remediations-per-hour={{ .Values.remediation.maxPerHour }}
+            {{- end }}
+            - --crashloop-restart-threshold={{ .Values.remediation.crashloopRestartThreshold }}
+            {{- with .Values.remediation.ignoreNamespaces }}
+            - --ignore-namespaces={{ join "," . }}
             {{- end }}
           env:
             - name: ANTHROPIC_API_KEY

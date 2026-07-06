@@ -11,6 +11,8 @@ import (
 	"github.com/sharatvikas/k8s-ai-ops/internal/collector"
 )
 
+const defaultModel = "claude-opus-4-6"
+
 const systemPrompt = `You are a Senior Site Reliability Engineer with deep Kubernetes expertise.
 
 When diagnosing issues:
@@ -42,44 +44,58 @@ type Analyzer struct {
 	model  string
 }
 
-// NewAnalyzer creates a new Analyzer using the ANTHROPIC_API_KEY env var
-func NewAnalyzer() (*Analyzer, error) {
+// New creates an Analyzer for the given model, reading credentials from
+// the ANTHROPIC_API_KEY environment variable. Used by the operator so the
+// client is constructed once at startup and failures surface immediately.
+func New(model string) (*Analyzer, error) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
 	}
-
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
-	model := os.Getenv("K8SAI_MODEL")
 	if model == "" {
-		model = "claude-opus-4-6"
+		model = defaultModel
 	}
-
-	return &Analyzer{client: client, model: model}, nil
+	return &Analyzer{
+		client: anthropic.NewClient(option.WithAPIKey(apiKey)),
+		model:  model,
+	}, nil
 }
 
+// NewAnalyzer creates a new Analyzer using the ANTHROPIC_API_KEY env var and
+// the K8SAI_MODEL env var for model selection (CLI entrypoint).
+func NewAnalyzer() (*Analyzer, error) {
+	return New(os.Getenv("K8SAI_MODEL"))
+}
+
+// Model returns the Claude model this analyzer queries.
+func (a *Analyzer) Model() string { return a.model }
+
 // DiagnosePod analyzes a pod context and returns a diagnosis
-func (a *Analyzer) DiagnosePod(ctx *collector.PodContext) (string, error) {
-	userMsg := buildPodDiagnosisPrompt(ctx)
-	return a.query(userMsg)
+func (a *Analyzer) DiagnosePod(ctx context.Context, pc *collector.PodContext) (string, error) {
+	return a.query(ctx, buildPodDiagnosisPrompt(pc))
 }
 
 // ExplainEvent translates a cryptic K8s event into plain English
-func (a *Analyzer) ExplainEvent(event string) (string, error) {
+func (a *Analyzer) ExplainEvent(ctx context.Context, event string) (string, error) {
 	userMsg := fmt.Sprintf(`Explain this Kubernetes event in plain English for an engineer who may not know what it means.
 Include: what it means, why it happens, and what to do about it.
 
 Event: %s`, event)
-	return a.query(userMsg)
+	return a.query(ctx, userMsg)
 }
 
-// AuditManifest reads a manifest file and checks for issues
-func (a *Analyzer) AuditManifest(filePath string) (string, error) {
+// AuditManifest reads a manifest file from disk and audits it (CLI path).
+func (a *Analyzer) AuditManifest(ctx context.Context, filePath string) (string, error) {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read manifest: %w", err)
 	}
+	return a.AuditManifestContent(ctx, string(content))
+}
 
+// AuditManifestContent audits raw manifest YAML (operator path — the manifest
+// is collected from the live cluster rather than a local file).
+func (a *Analyzer) AuditManifestContent(ctx context.Context, manifest string) (string, error) {
 	userMsg := fmt.Sprintf(`Audit this Kubernetes manifest for issues before it is applied to production.
 
 Check for:
@@ -93,13 +109,13 @@ Check for:
 
 Manifest:
 ---
-%s`, string(content))
+%s`, manifest)
 
-	return a.query(userMsg)
+	return a.query(ctx, userMsg)
 }
 
 // RecommendResources suggests resource requests/limits based on actual usage metrics
-func (a *Analyzer) RecommendResources(metrics *collector.ResourceMetrics) (string, error) {
+func (a *Analyzer) RecommendResources(ctx context.Context, metrics *collector.ResourceMetrics) (string, error) {
 	userMsg := fmt.Sprintf(`Based on the following resource utilization metrics, recommend appropriate
 Kubernetes resource requests and limits.
 
@@ -127,11 +143,11 @@ Provide:
 		metrics.OOMKillCount, metrics.CPUThrottleRate,
 	)
 
-	return a.query(userMsg)
+	return a.query(ctx, userMsg)
 }
 
-func (a *Analyzer) query(userMessage string) (string, error) {
-	resp, err := a.client.Messages.New(context.Background(), anthropic.MessageNewParams{
+func (a *Analyzer) query(ctx context.Context, userMessage string) (string, error) {
+	resp, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(a.model),
 		MaxTokens: 2048,
 		System: []anthropic.TextBlockParam{
@@ -154,17 +170,21 @@ func (a *Analyzer) query(userMessage string) (string, error) {
 	return sb.String(), nil
 }
 
-func buildPodDiagnosisPrompt(ctx *collector.PodContext) string {
+func buildPodDiagnosisPrompt(pc *collector.PodContext) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Diagnose this Kubernetes pod issue:\n\n"))
-	sb.WriteString(fmt.Sprintf("Pod: %s/%s\n", ctx.Namespace, ctx.Name))
-	sb.WriteString(fmt.Sprintf("Phase: %s\n", ctx.Phase))
-	sb.WriteString(fmt.Sprintf("Node: %s\n\n", ctx.NodeName))
+	sb.WriteString("Diagnose this Kubernetes pod issue:\n\n")
+	sb.WriteString(fmt.Sprintf("Pod: %s/%s\n", pc.Namespace, pc.Name))
+	sb.WriteString(fmt.Sprintf("Phase: %s\n", pc.Phase))
+	sb.WriteString(fmt.Sprintf("Node: %s\n\n", pc.NodeName))
 
-	if len(ctx.ContainerStatuses) > 0 {
+	if pc.IncidentID != "" {
+		sb.WriteString(fmt.Sprintf("Incident: %s\n\n", pc.IncidentID))
+	}
+
+	if len(pc.ContainerStatuses) > 0 {
 		sb.WriteString("CONTAINER STATUS:\n")
-		for _, cs := range ctx.ContainerStatuses {
+		for _, cs := range pc.ContainerStatuses {
 			sb.WriteString(fmt.Sprintf("  %s: ready=%v, restarts=%d\n", cs.Name, cs.Ready, cs.RestartCount))
 			if cs.State != "" {
 				sb.WriteString(fmt.Sprintf("    State: %s\n", cs.State))
@@ -175,22 +195,22 @@ func buildPodDiagnosisPrompt(ctx *collector.PodContext) string {
 		}
 	}
 
-	if len(ctx.Events) > 0 {
+	if len(pc.Events) > 0 {
 		sb.WriteString("\nRECENT EVENTS:\n")
-		for _, e := range ctx.Events {
+		for _, e := range pc.Events {
 			sb.WriteString(fmt.Sprintf("  [%s] %s (x%d)\n", e.Reason, e.Message, e.Count))
 		}
 	}
 
-	if len(ctx.Logs) > 0 {
+	if len(pc.Logs) > 0 {
 		sb.WriteString("\nRECENT LOGS (last 20 lines):\n")
-		for _, line := range ctx.Logs {
+		for _, line := range pc.Logs {
 			sb.WriteString("  " + line + "\n")
 		}
 	}
 
-	if ctx.RecentDeployment != "" {
-		sb.WriteString(fmt.Sprintf("\nRECENT DEPLOYMENT: %s\n", ctx.RecentDeployment))
+	if pc.RecentDeployment != "" {
+		sb.WriteString(fmt.Sprintf("\nRECENT DEPLOYMENT: %s\n", pc.RecentDeployment))
 	}
 
 	return sb.String()

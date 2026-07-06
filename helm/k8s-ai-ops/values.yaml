@@ -43,13 +43,39 @@ metrics:
     namespace: ""
     interval: 30s
 
+# Auto-remediation — all mutating actions are gated behind enabled=true.
+# When disabled the operator only detects incidents and files AIInsight
+# diagnoses (observe-and-diagnose mode).
+remediation:
+  enabled: false
+  # Minimum interval between remediations of pods from the same workload
+  cooldown: 10m
+  # Global circuit breaker: max remediation actions per hour
+  maxPerHour: 10
+  # Restart count at which a crashlooping container becomes an incident
+  crashloopRestartThreshold: 3
+  # Extra namespaces to skip (kube-system, kube-public, kube-node-lease
+  # are always skipped)
+  ignoreNamespaces: []
+
+# TTL for auto-created AIInsight results
+insightTTL: 1h
+
+# Structured logging (zap)
+logging:
+  # json (production) or console
+  encoder: json
+  # debug, info, error
+  level: info
+
 # RBAC — creates ClusterRole and ClusterRoleBinding
+# The pods "delete" verb is only granted when remediation.enabled=true.
 rbac:
   create: true
 
-# CRD installation — set to false if managing CRDs externally
-crds:
-  install: true
+# CRDs live in the chart's crds/ directory and are installed automatically
+# on first install. Use `helm install --skip-crds` to manage them externally:
+#   kubectl apply -f https://raw.githubusercontent.com/sharatvikas/k8s-ai-ops/main/config/crd/aiinsight.yaml
 
 nodeSelector: {}
 tolerations: []

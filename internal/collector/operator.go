@@ -11,7 +11,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -174,13 +173,3 @@ func (c *OperatorCollector) GetResourceYAML(ctx context.Context, kind, namespace
 	}
 	return string(out), nil
 }
-
-// IncidentID field support on PodContext (used by controller contextHints injection)
-func init() {
-	// Validate PodContext has IncidentID at compile time via type assertion
-	_ = &PodContext{}
-}
-
-// Extend PodContext with IncidentID for operator contextHints injection.
-// This is added here to keep CLI collector.go unchanged.
-var _ = metav1.Now // ensure metav1 import used

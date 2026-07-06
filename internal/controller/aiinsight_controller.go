@@ -15,13 +15,19 @@ import (
 	aiv1alpha1 "github.com/sharatvikas/k8s-ai-ops/api/v1alpha1"
 	"github.com/sharatvikas/k8s-ai-ops/internal/analyzer"
 	"github.com/sharatvikas/k8s-ai-ops/internal/collector"
+	opmetrics "github.com/sharatvikas/k8s-ai-ops/internal/metrics"
 )
+
+// analysisTimeout bounds a single AI analysis (cluster context collection plus
+// the Claude API round trip). Reconcile contexts have no deadline of their own.
+const analysisTimeout = 2 * time.Minute
 
 // AIInsightReconciler reconciles AIInsight objects
 type AIInsightReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	AnthropicModel string
+	Scheme *runtime.Scheme
+	// Analyzer is the shared Claude API client, constructed once at startup.
+	Analyzer *analyzer.Analyzer
 }
 
 // +kubebuilder:rbac:groups=ai.k8s-ai-ops.io,resources=aiinsights,verbs=get;list;watch;create;update;patch;delete
@@ -70,24 +76,30 @@ func (r *AIInsightReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// Collect context from the cluster
+	// Collect context from the cluster and run the AI analysis with a bounded deadline
 	col := collector.New(r.Client)
+	start := time.Now()
 	summary, err := r.runAnalysis(ctx, col, &insight)
+	opmetrics.AnalysisDuration.WithLabelValues(insight.Spec.AnalysisType).Observe(time.Since(start).Seconds())
 	if err != nil {
+		opmetrics.AnalysesTotal.WithLabelValues(insight.Spec.AnalysisType, "failure").Inc()
 		logger.Error(err, "analysis failed")
 		return ctrl.Result{}, r.markFailed(ctx, &insight, err.Error())
 	}
+	opmetrics.AnalysesTotal.WithLabelValues(insight.Spec.AnalysisType, "success").Inc()
 
 	return ctrl.Result{RequeueAfter: time.Duration(insight.Spec.TTLSeconds) * time.Second}, r.markCompleted(ctx, &insight, summary)
 }
 
 func (r *AIInsightReconciler) runAnalysis(
 	ctx context.Context,
-	col *collector.K8sCollector,
+	col *collector.OperatorCollector,
 	insight *aiv1alpha1.AIInsight,
 ) (string, error) {
-	an := analyzer.New(r.AnthropicModel)
+	ctx, cancel := context.WithTimeout(ctx, analysisTimeout)
+	defer cancel()
 
+	an := r.Analyzer
 	target := insight.Spec.Target
 	hints := insight.Spec.ContextHints
 
@@ -111,7 +123,7 @@ func (r *AIInsightReconciler) runAnalysis(
 		if err != nil {
 			return "", fmt.Errorf("collect manifest: %w", err)
 		}
-		return an.AuditManifest(ctx, manifest)
+		return an.AuditManifestContent(ctx, manifest)
 
 	case "Recommend":
 		if target.Kind != "Deployment" {
@@ -141,7 +153,7 @@ func (r *AIInsightReconciler) markCompleted(ctx context.Context, insight *aiv1al
 	insight.Status.Phase = "Completed"
 	insight.Status.Summary = summary
 	insight.Status.CompletedAt = &now
-	insight.Status.Model = r.AnthropicModel
+	insight.Status.Model = r.Analyzer.Model()
 	meta.SetStatusCondition(&insight.Status.Conditions, metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,

@@ -1,9 +1,11 @@
 apiVersion: v2
 name: k8s-ai-ops
-description: AI-powered Kubernetes diagnostics operator — AIInsight CRD + controller
+description: >-
+  AI-powered Kubernetes diagnostics operator — AIInsight CRD, pod watcher with
+  crashloop/OOM/image-pull detection, and gated auto-remediation
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 keywords:
   - kubernetes
   - ai

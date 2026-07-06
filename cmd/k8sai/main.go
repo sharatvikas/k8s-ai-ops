@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -22,7 +23,7 @@ var diagnosePodCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ns, _ := cmd.Flags().GetString("namespace")
-		return runDiagnosePod(args[0], ns)
+		return runDiagnosePod(cmd.Context(), args[0], ns)
 	},
 }
 
@@ -31,7 +32,7 @@ var explainCmd = &cobra.Command{
 	Short: "Explain a cryptic Kubernetes event in plain English",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runExplain(args)
+		return runExplain(cmd.Context(), args)
 	},
 }
 
@@ -40,7 +41,7 @@ var auditCmd = &cobra.Command{
 	Short: "Audit a deployment manifest for issues before applying",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		file, _ := cmd.Flags().GetString("file")
-		return runManifestAudit(file)
+		return runManifestAudit(cmd.Context(), file)
 	},
 }
 
@@ -54,7 +55,7 @@ func init() {
 	// recommendCmd registered in recommend.go
 }
 
-func runDiagnosePod(name, namespace string) error {
+func runDiagnosePod(ctx context.Context, name, namespace string) error {
 	fmt.Printf("Analyzing pod %s in namespace %s...\n\n", name, namespace)
 
 	c, err := collector.NewK8sCollector()
@@ -62,7 +63,7 @@ func runDiagnosePod(name, namespace string) error {
 		return fmt.Errorf("failed to connect to cluster: %w", err)
 	}
 
-	ctx, err := c.CollectPodContext(name, namespace)
+	podCtx, err := c.CollectPodContext(name, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to collect pod context: %w", err)
 	}
@@ -72,7 +73,7 @@ func runDiagnosePod(name, namespace string) error {
 		return fmt.Errorf("failed to init analyzer: %w", err)
 	}
 
-	diagnosis, err := a.DiagnosePod(ctx)
+	diagnosis, err := a.DiagnosePod(ctx, podCtx)
 	if err != nil {
 		return fmt.Errorf("analysis failed: %w", err)
 	}
@@ -81,7 +82,7 @@ func runDiagnosePod(name, namespace string) error {
 	return nil
 }
 
-func runExplain(messageParts []string) error {
+func runExplain(ctx context.Context, messageParts []string) error {
 	message := ""
 	for _, p := range messageParts {
 		message += p + " "
@@ -92,7 +93,7 @@ func runExplain(messageParts []string) error {
 		return err
 	}
 
-	explanation, err := a.ExplainEvent(message)
+	explanation, err := a.ExplainEvent(ctx, message)
 	if err != nil {
 		return err
 	}
@@ -101,7 +102,7 @@ func runExplain(messageParts []string) error {
 	return nil
 }
 
-func runManifestAudit(file string) error {
+func runManifestAudit(ctx context.Context, file string) error {
 	if file == "" {
 		return fmt.Errorf("--file is required")
 	}
@@ -111,7 +112,7 @@ func runManifestAudit(file string) error {
 		return err
 	}
 
-	result, err := a.AuditManifest(file)
+	result, err := a.AuditManifest(ctx, file)
 	if err != nil {
 		return err
 	}
@@ -119,7 +120,6 @@ func runManifestAudit(file string) error {
 	fmt.Println(result)
 	return nil
 }
-
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {

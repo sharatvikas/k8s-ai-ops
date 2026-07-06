@@ -1,0 +1,14 @@
+# Compiled binaries
+/k8sai
+/operator
+/bin/
+/dist/
+
+# Test artifacts
+coverage.out
+*.test
+
+# Editor/OS noise
+.DS_Store
+.idea/
+.vscode/

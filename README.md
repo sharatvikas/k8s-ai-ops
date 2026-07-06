@@ -87,17 +87,62 @@ k8sai recommend resources deploy/<name> --window 7d
 ```
 
 ### In-Cluster Operator Mode
-- Watches for `Warning` events across all namespaces
-- On repeated events (configurable threshold), triggers AI analysis
-- Annotates the offending resource with diagnosis + recommended action
-- Optionally sends findings to Slack / PagerDuty
-- Can auto-remediate pre-approved action types (restart, resource patch)
+Two controllers run inside a single manager (`cmd/operator`):
+
+- **AIInsight controller** — fulfils `AIInsight` custom resources: collects
+  cluster context for the target (pod status, events, logs, manifests),
+  queries Claude, and writes the analysis to `.status.summary`. Results are
+  TTL-expired and auto-deleted.
+- **Pod watcher** — watches pods cluster-wide and detects three incident
+  classes from container state: **CrashLoopBackOff** (restart threshold),
+  **OOMKilled** (classified separately even when it surfaces as a crashloop),
+  and **image-pull failures** (`ImagePullBackOff` / `ErrImagePull` /
+  `InvalidImageName`). Each incident files a deduplicated `Diagnose`
+  AIInsight and records a Kubernetes event on the pod.
+
+```bash
+# Request an analysis declaratively
+kubectl apply -f config/samples/diagnose-pod.yaml
+kubectl get aiinsights                      # Phase: Running → Completed
+kubectl get aiinsight diagnose-pod -o jsonpath='{.status.summary}'
+
+# See what the pod watcher has diagnosed automatically
+kubectl get aiinsights -A -l app.kubernetes.io/managed-by=k8s-ai-ops
+```
 
 ### Guardrails
-- Dry-run mode by default for all mutations
-- Allowlist of approved remediation actions per namespace
-- Audit trail of every AI decision + action taken
-- Cost controls: max tokens per diagnosis, caching repeated contexts
+Auto-remediation is **off by default** (`--enable-remediation` / Helm
+`remediation.enabled=true`) and, when on, is restricted to one safe action —
+deleting a crashlooping or OOM-killed pod so its controller reschedules it —
+behind four gates:
+
+1. The pod must be managed by a workload controller (ReplicaSet, StatefulSet,
+   DaemonSet); bare pods are never deleted.
+2. Per-workload cooldown (`--remediation-cooldown`, default 10m).
+3. Global circuit breaker (`--max-remediations-per-hour`, default 10).
+4. Control-plane namespaces (`kube-system`, `kube-public`, `kube-node-lease`)
+   plus any `--ignore-namespaces` are never touched.
+
+Image-pull failures are never auto-remediated (a restart cannot fix a bad tag
+or registry auth) — they get diagnosis only. Every action is recorded as a
+Kubernetes event (`AutoRemediated`) for the audit trail:
+
+```bash
+kubectl get events -A --field-selector reason=AutoRemediated
+```
+
+### Operator metrics
+Prometheus metrics on `--metrics-bind-address` (default `:8080`, scrapeable
+via the chart's ServiceMonitor):
+
+| Metric | Labels | Meaning |
+|--------|--------|---------|
+| `k8sai_incidents_detected_total` | `type`, `namespace` | Crashloops / OOMs / image-pull failures found |
+| `k8sai_insights_created_total` | `analysis_type`, `trigger` | AIInsights filed automatically |
+| `k8sai_analyses_total` | `analysis_type`, `outcome` | Claude analyses run (success/failure) |
+| `k8sai_analysis_duration_seconds` | `analysis_type` | Analysis latency histogram |
+| `k8sai_remediations_total` | `action`, `result` | Remediation actions attempted |
+| `k8sai_remediations_skipped_total` | `reason` | Gated remediations (cooldown, budget, unmanaged pod, disabled) |
 
 ---
 
@@ -117,11 +162,63 @@ k8sai diagnose pod my-broken-pod -n production
 ### Operator Install (Helm)
 
 ```bash
-helm repo add k8s-ai-ops https://sharatvikas.github.io/k8s-ai-ops/charts
-helm install k8s-ai-ops k8s-ai-ops/k8s-ai-ops \
-  --set anthropic.apiKey=$ANTHROPIC_API_KEY \
-  --set slack.webhookUrl=$SLACK_WEBHOOK \
-  --namespace k8s-ai-ops --create-namespace
+git clone https://github.com/sharatvikas/k8s-ai-ops && cd k8s-ai-ops
+
+# Recommended: reference an existing secret containing ANTHROPIC_API_KEY
+kubectl create namespace k8s-ai-ops
+kubectl create secret generic anthropic-api-key -n k8s-ai-ops \
+  --from-literal=ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+
+helm install k8s-ai-ops ./helm/k8s-ai-ops \
+  --namespace k8s-ai-ops \
+  --set anthropicApiKey.existingSecret=anthropic-api-key
+```
+
+The chart installs the `AIInsight` CRD (from `crds/`), a minimally-scoped
+ClusterRole (read-only unless remediation is enabled — the pods `delete` verb
+is only granted with `remediation.enabled=true`), leader-election-ready
+Deployment, metrics Service, and optional ServiceMonitor / PDB.
+
+Key values (`helm/k8s-ai-ops/values.yaml`):
+
+```yaml
+anthropicModel: "claude-haiku-4-5-20251001"   # model for in-cluster analyses
+anthropicApiKey:
+  existingSecret: ""        # name of a Secret holding ANTHROPIC_API_KEY
+  value: ""                 # or inline (chart creates the Secret)
+remediation:
+  enabled: false            # gate for ALL mutating actions
+  cooldown: 10m             # per-workload remediation interval
+  maxPerHour: 10            # global circuit breaker
+  crashloopRestartThreshold: 3
+  ignoreNamespaces: []      # in addition to kube-* namespaces
+leaderElection:
+  enabled: false            # enable when replicaCount > 1
+insightTTL: 1h              # retention for auto-created AIInsight results
+logging:
+  encoder: json             # structured logs (zap)
+  level: info
+```
+
+Enable auto-remediation and HA once you trust the diagnoses:
+
+```bash
+helm upgrade k8s-ai-ops ./helm/k8s-ai-ops -n k8s-ai-ops --reuse-values \
+  --set remediation.enabled=true \
+  --set replicaCount=2 \
+  --set leaderElection.enabled=true \
+  --set podDisruptionBudget.enabled=true
+```
+
+### Running the operator locally
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+kubectl apply -f config/crd/aiinsight.yaml
+go run ./cmd/operator \
+  --enable-remediation=false \
+  --crashloop-restart-threshold=3 \
+  --zap-encoder=console --zap-log-level=debug
 ```
 
 ---
@@ -131,19 +228,21 @@ helm install k8s-ai-ops k8s-ai-ops/k8s-ai-ops \
 ```
 k8s-ai-ops/
 ├── cmd/
-│   └── k8sai/           # CLI entrypoint
+│   ├── k8sai/                  # CLI entrypoint (cobra)
+│   └── operator/               # Controller-manager entrypoint
+├── api/
+│   └── v1alpha1/               # AIInsight CRD types (+ deepcopy)
 ├── internal/
-│   ├── analyzer/        # Claude API integration + prompt engineering
-│   ├── collector/       # K8s event + log + metric collection
-│   ├── operator/        # Kubernetes operator (controller-runtime)
-│   ├── remediation/     # Auto-remediation engine with allowlist
-│   └── notifier/        # Slack / PagerDuty notifiers
-├── charts/              # Helm chart for operator deployment
-├── config/              # CRDs and RBAC manifests
-├── examples/            # Example broken deployments for testing
-└── docs/
-    ├── PROMPT_DESIGN.md # How prompts are structured
-    └── COST_ANALYSIS.md # Expected API cost at scale
+│   ├── analyzer/               # Claude API integration + prompt engineering
+│   ├── collector/              # K8s context collection (CLI clientset + operator client)
+│   ├── controller/             # AIInsight reconciler + pod watcher/remediator
+│   └── metrics/                # Prometheus metrics (controller-runtime registry)
+├── helm/
+│   └── k8s-ai-ops/             # Helm chart (Deployment, RBAC, CRD, ServiceMonitor, PDB)
+├── config/
+│   ├── crd/                    # AIInsight CRD for kubectl-apply installs
+│   └── samples/                # Example AIInsight CRs
+└── Dockerfile                  # Multi-stage: cli + operator distroless images
 ```
 
 ---
@@ -166,6 +265,8 @@ See [`docs/PROMPT_DESIGN.md`](docs/PROMPT_DESIGN.md) for the full prompt strateg
 - [x] Pod OOMKill diagnosis
 - [x] CrashLoopBackOff analysis
 - [x] Pending pod scheduling diagnosis
+- [x] In-cluster operator: AIInsight CRD + pod watcher with gated auto-remediation
+- [x] Helm chart (CRD, minimal RBAC, leader election, metrics, ServiceMonitor, PDB)
 - [ ] HPA / VPA recommendation engine
 - [ ] Network policy debugging
 - [ ] Istio service mesh diagnostics

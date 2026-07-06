@@ -20,8 +20,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 var topCmd = &cobra.Command{
@@ -37,8 +37,8 @@ Examples:
   k8sai top nodes                    # Node-level utilization
   k8sai top pods --sort cpu          # Sort by CPU usage
   k8sai top pods --threshold 70      # Flag at 70% utilization`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTop,
+	Args: cobra.ExactArgs(1),
+	RunE: runTop,
 }
 
 func init() {
@@ -50,27 +50,27 @@ func init() {
 }
 
 type podMetricRow struct {
-	namespace    string
-	pod          string
-	container    string
-	cpuUsage     int64   // millicores
-	memUsage     int64   // bytes
-	cpuRequest   int64   // millicores
-	memRequest   int64   // bytes
-	cpuPct       float64 // usage / request
-	memPct       float64
-	cpuLimit     int64
-	memLimit     int64
+	namespace  string
+	pod        string
+	container  string
+	cpuUsage   int64   // millicores
+	memUsage   int64   // bytes
+	cpuRequest int64   // millicores
+	memRequest int64   // bytes
+	cpuPct     float64 // usage / request
+	memPct     float64
+	cpuLimit   int64
+	memLimit   int64
 }
 
 type nodeMetricRow struct {
-	node       string
-	cpuUsage   int64
-	memUsage   int64
-	cpuCap     int64
-	memCap     int64
-	cpuPct     float64
-	memPct     float64
+	node     string
+	cpuUsage int64
+	memUsage int64
+	cpuCap   int64
+	memCap   int64
+	cpuPct   float64
+	memPct   float64
 }
 
 func runTop(cmd *cobra.Command, args []string) error {

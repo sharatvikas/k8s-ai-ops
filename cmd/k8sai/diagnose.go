@@ -55,7 +55,7 @@ func runDiagnose(namespace, deployment string) error {
 	if deployment != "" {
 		fmt.Printf(" (deployment: %s)", deployment)
 	}
-	fmt.Println("...\n")
+	fmt.Print("...\n\n")
 
 	cs, err := buildClientset()
 	if err != nil {
@@ -69,7 +69,7 @@ func runDiagnose(namespace, deployment string) error {
 	}
 
 	fmt.Println(snapshot.text())
-	fmt.Println("\n--- Sending to Claude for analysis ---\n")
+	fmt.Print("\n--- Sending to Claude for analysis ---\n\n")
 
 	diagnosis, err := analyzeWithClaude(snapshot)
 	if err != nil {
@@ -87,9 +87,9 @@ type namespaceSnapshot struct {
 	deployment  string
 	collectedAt time.Time
 
-	totalPods    int
-	runningPods  int
-	failingPods  []podSummary
+	totalPods      int
+	runningPods    int
+	failingPods    []podSummary
 	restartLeaders []podSummary // pods with high restart counts
 
 	deployments  []deploymentSummary
@@ -107,10 +107,10 @@ type podSummary struct {
 }
 
 type deploymentSummary struct {
-	name     string
-	desired  int32
-	ready    int32
-	updated  int32
+	name      string
+	desired   int32
+	ready     int32
+	updated   int32
 	available int32
 }
 

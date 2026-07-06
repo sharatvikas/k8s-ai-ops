@@ -1,0 +1,143 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: aiinsights.ai.k8s-ai-ops.io
+spec:
+  group: ai.k8s-ai-ops.io
+  names:
+    kind: AIInsight
+    listKind: AIInsightList
+    plural: aiinsights
+    singular: aiinsight
+    shortNames:
+      - aii
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Target
+          type: string
+          jsonPath: .spec.target.kind
+        - name: Name
+          type: string
+          jsonPath: .spec.target.name
+        - name: Type
+          type: string
+          jsonPath: .spec.analysisType
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >-
+            AIInsight requests an AI-generated operational analysis of a
+            Kubernetes resource. The operator collects cluster context for the
+            target, queries the Claude API, and writes the result to status.
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - target
+                - analysisType
+              properties:
+                analysisType:
+                  description: Type of analysis to run.
+                  type: string
+                  enum:
+                    - Diagnose
+                    - Audit
+                    - Recommend
+                    - Explain
+                ttlSeconds:
+                  description: >-
+                    How long to keep the completed result before the resource
+                    is auto-deleted.
+                  type: integer
+                  format: int64
+                  default: 3600
+                  minimum: 60
+                contextHints:
+                  description: >-
+                    Free-form hints injected into the AI prompt (e.g. recent
+                    deploy SHA, incident ID, detected condition).
+                  type: object
+                  additionalProperties:
+                    type: string
+                target:
+                  description: Resource to analyze.
+                  type: object
+                  required:
+                    - kind
+                    - name
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - Pod
+                        - Deployment
+                        - Node
+                        - Event
+                    name:
+                      type: string
+                      minLength: 1
+                    namespace:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  description: Pending | Running | Completed | Failed
+                  type: string
+                summary:
+                  description: AI-generated analysis (markdown).
+                  type: string
+                model:
+                  description: Claude model that produced the analysis.
+                  type: string
+                inputTokens:
+                  type: integer
+                  format: int64
+                outputTokens:
+                  type: integer
+                  format: int64
+                completedAt:
+                  type: string
+                  format: date-time
+                failureReason:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - reason
+                      - lastTransitionTime
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time

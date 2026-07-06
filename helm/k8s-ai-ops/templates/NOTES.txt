@@ -1,0 +1,54 @@
+k8s-ai-ops {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+1. Verify the operator is running:
+
+   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if and (not .Values.anthropicApiKey.existingSecret) (not .Values.anthropicApiKey.value) }}
+
+WARNING: no Anthropic API key configured. The operator will crash on startup.
+Either:
+  --set anthropicApiKey.existingSecret=<secret-name>   (recommended)
+  --set anthropicApiKey.value=$ANTHROPIC_API_KEY       (creates a Secret)
+{{- end }}
+
+2. Request an AI diagnosis of any pod:
+
+   kubectl apply -f - <<EOF
+   apiVersion: ai.k8s-ai-ops.io/v1alpha1
+   kind: AIInsight
+   metadata:
+     name: diagnose-my-pod
+   spec:
+     target:
+       kind: Pod
+       name: <pod-name>
+       namespace: <pod-namespace>
+     analysisType: Diagnose
+   EOF
+
+   kubectl get aiinsight diagnose-my-pod -o jsonpath='{.status.summary}'
+
+3. The pod watcher automatically files AIInsight diagnoses for pods in
+   CrashLoopBackOff, OOMKilled, or ImagePull* states:
+
+   kubectl get aiinsights -A -l app.kubernetes.io/managed-by=k8s-ai-ops
+
+{{- if .Values.remediation.enabled }}
+
+4. AUTO-REMEDIATION IS ENABLED. Crashlooping/OOM-killed pods that are managed
+   by a workload controller will be deleted for reschedule, subject to:
+     - cooldown per workload: {{ .Values.remediation.cooldown }}
+     - global budget: {{ .Values.remediation.maxPerHour }}/hour
+   Audit trail: kubectl get events -A --field-selector reason=AutoRemediated
+{{- else }}
+
+4. Auto-remediation is DISABLED (observe-and-diagnose only). Enable with:
+   --set remediation.enabled=true
+{{- end }}
+
+{{- if .Values.metrics.enabled }}
+
+Metrics are exposed on port {{ .Values.metrics.port }} at /metrics
+(k8sai_incidents_detected_total, k8sai_remediations_total, k8sai_analyses_total, ...).
+{{- end }}
