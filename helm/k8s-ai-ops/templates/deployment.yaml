@@ -19,6 +19,10 @@ spec:
       serviceAccountName: {{ include "k8s-ai-ops.serviceAccountName" . }}
       securityContext:
         runAsNonRoot: true
+        # Numeric UID is required so the kubelet can verify runAsNonRoot; the
+        # distroless "nonroot" user is UID 65532 but declared non-numerically,
+        # which fails verification (CreateContainerConfigError) without this.
+        runAsUser: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:

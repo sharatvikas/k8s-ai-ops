@@ -1,0 +1,27 @@
+# Deliberately ImagePullBackOff: references a tag that does not exist in the
+# registry. The watcher diagnoses it but never remediates (deleting the pod
+# cannot fix a bad image reference).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imagepull-app
+  namespace: k8sai-demo
+  labels:
+    app: imagepull-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: imagepull-app
+  template:
+    metadata:
+      labels:
+        app: imagepull-app
+    spec:
+      containers:
+        - name: badimage
+          image: registry.k8s.io/pause:this-tag-does-not-exist-9x9x9
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

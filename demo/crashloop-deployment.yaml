@@ -1,0 +1,28 @@
+# Deliberately CrashLoopBackOff: exits 1 immediately, restart-looped by the
+# ReplicaSet. Owned by a workload controller, so the watcher marks it
+# remediable (but remediation is disabled in this demo).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-app
+  namespace: k8sai-demo
+  labels:
+    app: crashloop-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crashloop-app
+  template:
+    metadata:
+      labels:
+        app: crashloop-app
+    spec:
+      containers:
+        - name: crasher
+          image: busybox:1.36
+          command: ["/bin/sh", "-c", "echo 'starting up...'; sleep 2; echo 'fatal: config missing, exiting'; exit 1"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
