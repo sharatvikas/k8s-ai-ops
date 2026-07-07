@@ -383,7 +383,7 @@ Namespace snapshot:
 %s`, s.text())
 
 	msg, err := client.Messages.New(context.Background(), anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaude3_7Sonnet20250219,
+		Model:     anthropic.ModelClaudeSonnet4_5,
 		MaxTokens: 2000,
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(prompt))},
 	})

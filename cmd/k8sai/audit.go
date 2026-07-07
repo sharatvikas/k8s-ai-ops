@@ -414,7 +414,7 @@ func getAuditRemediation(ctx context.Context, findings []AuditFinding, namespace
 	sb.WriteString("\nProvide a prioritized remediation plan with specific kubectl commands or YAML patches.")
 
 	resp, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaude3_7Sonnet20250219,
+		Model:     anthropic.ModelClaudeSonnet4_5,
 		MaxTokens: 1500,
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(sb.String()))},
 	})
