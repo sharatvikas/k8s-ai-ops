@@ -223,6 +223,25 @@ go run ./cmd/operator \
 
 ---
 
+## Try it locally
+
+The `demo/` directory runs the operator end-to-end on a real Kubernetes cluster (e.g. [`kind`](https://kind.sigs.k8s.io/)): it deploys the operator in observe-and-diagnose mode, applies two faulty workloads, and shows the pod watcher detect **CrashLoopBackOff** and **ImagePullBackOff** incidents, file an `AIInsight` CR for each, emit Kubernetes events, and increment the Prometheus counters.
+
+```bash
+# Requires a Kubernetes cluster (e.g. kind). Full step-by-step in demo/README.md.
+docker build --target operator -t k8s-ai-ops:demo . && kind load docker-image k8s-ai-ops:demo --name sre-platform
+kubectl create namespace k8sai-demo
+helm install k8s-ai-ops ./helm/k8s-ai-ops -n k8sai-demo \
+  --set image.repository=k8s-ai-ops --set image.tag=demo \
+  --set remediation.enabled=false --set logging.encoder=console \
+  --set anthropicApiKey.value=sk-ant-dummy-key-for-demo-not-valid
+kubectl apply -f demo/crashloop-deployment.yaml -f demo/imagepull-deployment.yaml
+```
+
+This proves the full detection → `AIInsight` → events → metrics path without a real cluster incident (the Claude call itself needs a valid `ANTHROPIC_API_KEY`). See [`demo/OUTPUT.md`](demo/OUTPUT.md) for the captured real run and [`demo/README.md`](demo/README.md) for the complete walkthrough.
+
+---
+
 ## Project Structure
 
 ```
