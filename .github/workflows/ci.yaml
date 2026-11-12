@@ -99,7 +99,7 @@ jobs:
 
       - name: Build and push CLI image
         id: push-cli
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: cli
@@ -132,7 +132,7 @@ jobs:
 
       - name: Build and push Operator image
         id: push-operator
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: operator
